@@ -1,0 +1,66 @@
+race_results %>% 
+  extract_workflow_set_result("RF") %>% 
+  select_best(metric = "rmse")
+
+
+xgb_spec <- 
+  boost_tree(tree_depth = tune(), learn_rate = tune(), loss_reduction = tune(), 
+             min_n = tune(), sample_size = tune(), trees = tune()) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("regression")
+
+
+library(rules)
+
+model <- boost_tree(tree_depth = 13, learn_rate = 0.0109, loss_reduction = 1.03, 
+                    min_n = 21, sample_size = .293, trees = 1205) %>% 
+                      set_engine("xgboost") %>% 
+                      set_mode("regression")
+
+model <- cubist_rules(committees = 98, neighbors = 0) %>% 
+  set_engine("Cubist") 
+
+model <-
+  rand_forest(mtry = 2, min_n = 14, trees = 1000) %>% 
+  set_engine("ranger") %>% 
+  set_mode("regression")
+
+workflow <- workflow() %>%
+  add_model(model)
+
+recipe <- recipe(muhat ~ X1 + X2, train)
+
+workflow <- add_recipe(workflow, recipe)
+workflow
+fit_workflow <- fit(workflow, train)
+
+# This will automatically `bake()` the recipe on `testing`,
+# applying the log step to `disp`, and then fit the regression.
+muhat_preds <- predict(fit_workflow, test)
+
+mean((muhat_preds$.pred-test$muhat)^2)
+
+install.packages('bonsai')
+library(bonsai)
+
+bt_spec <-
+  boost_tree(learn_rate = tune(), stop_iter = tune(), trees = 1000) %>%
+  set_engine("lightgbm", num_leaves = tune()) %>%
+  set_mode("regression")
+
+bt_rec <- recipe(muhat ~ X1+X2, data = train)
+bt_wflow <- workflow(bt_rec, bt_spec)
+extract_parameter_set_dials(bt_wflow)
+install.packages('lightgbm')
+set.seed(3)
+
+bt_time_grid <- system.time(
+  bt_res_grid <- tune_grid(bt_wflow, folds, grid = 50)
+)
+library(parallel)
+doParallel::registerDoParallel(cores = 4)
+bt_time_par <- system.time(
+  bt_res_par <- tune_grid(bt_wflow, folds, grid = 50)
+)
+lgbm <- collect_metrics(
+bt_res_par)
